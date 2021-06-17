@@ -25,7 +25,7 @@
 * for the JavaScript code in this file.
 *
 */
+import copy from './copy';
+import select, {strictEquality, subsetEquality} from './select';
 
-export * from './copy';
-export * from './select';
-
+export default {copy, select, strictEquality, subsetEquality};

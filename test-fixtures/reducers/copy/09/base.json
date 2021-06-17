@@ -12,15 +12,11 @@
             "subfields": [
                 {
                     "code": "a",
-                    "value": "Héllõ  .,-/   Wörld .,-/#!$%^&*;:{}=_`~()[]"
-                },
-                {
-                    "code": "a",
-                    "value": "jotain"
+                    "value": "010a_base"
                 },
                 {
                     "code": "b",
-                    "value": "  çšŕ#!$%ňŭųœ       #!$%ËÑĶãýğĝŧŵ"
+                    "value": "010b_base"
                 }
             ]
         }

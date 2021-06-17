@@ -41,20 +41,22 @@ describe('reducers/select', () => {
   fs.readdirSync(fixturesPath).forEach(subDir => {
     const {getFixture} = fixturesFactory({root: [fixturesPath, subDir], reader: READERS.JSON, failWhenNotFound: false});
     it(subDir, () => {
-      const baseTest = new MarcRecord(getFixture('base.json'));
-      const sourceTest = new MarcRecord(getFixture('source.json'));
-      const patternTest = new RegExp(getFixture({components: ['pattern.txt'], reader: READERS.TEXT}), 'u');
+      const base = new MarcRecord(getFixture('base.json'));
+      const source = new MarcRecord(getFixture('source.json'));
+      const tagPattern = new RegExp(getFixture({components: ['pattern.txt'], reader: READERS.TEXT}), 'u');
       const expectedRecord = getFixture('merged.json');
       const expectedError = getFixture({components: ['expected-error.txt'], reader: READERS.TEXT});
       const equalityFunction = getEqualityFunction();
 
+      // Bypass expected error in testing
       if (expectedError) {
         expect(() => createReducer.to.throw(Error, 'control field'));
         return;
       }
-      const mergedRecord = createReducer({pattern: patternTest, equalityFunction})(baseTest, sourceTest);
+      const mergedRecord = createReducer({tagPattern, equalityFunction})(base, source);
       expect(mergedRecord.toObject()).to.eql(expectedRecord);
 
+      // Choose which equality function to use
       function getEqualityFunction() {
         const functionName = getFixture({components: ['equalityFunction.txt'], reader: READERS.TEXT});
         return functionName === 'subsetEquality' ? subsetEquality : undefined;

@@ -25,64 +25,116 @@
 * for the JavaScript code in this file.
 *
 */
-// Import createDebugLogger from 'debug';
 
-export default (pattern) => (base, source) => {
-//  Const debug = createDebugLogger('@natlibfi/marc-record-merge');
-  const baseFields = base.get(pattern);
-  const sourceFields = source.get(pattern);
+/**
+ * Test 01: If base does not contain the field at all, it is copied from source to base
+ * Test 02: Identical control fields are not copied
+ * Test 03: Add missing control field to base
+ * Test 04: Identical data fields in base and source, not copied
+ * Test 05: Different data fields are copied from source to base (multiple fields)
+ * Test 06: compareTagsOnly: Field is copied from source only if it is missing in base, a different instance is not copied
+ * Test 07: excludeSubfields: Ignore excluded subfields in comparing identicalness
+ * Test 08: dropSubfields: Drop subfields from source before copying
+ * Test 09: compareTagsOnly for repeatable fields, 2x each 260/264
+ * */
+import createDebugLogger from 'debug';
+
+export default ({tagPattern, compareTagsOnly = false, excludeSubfields = [], dropSubfields = []}) => (base, source) => {
+  const debug = createDebugLogger('@natlibfi/marc-record-merge');
+  const baseFields = base.get(tagPattern);
+  // Check whether there are subfields to drop from source before copying
+  const sourceFields = checkDropSubfields(source.get(tagPattern));
   return copyFields();
 
   function copyFields() {
-    // Test 01: If base does not contain the field at all, it is copied from source to base
+    const sourceTags = sourceFields.map(field => field.tag);
+    sourceTags.forEach(tag => debug(`Comparing field ${tag}`));
+
+    // If compareTagsOnly = true, only this part is run
+    // The field is copied from source only if it is missing completely from base
     if (baseFields.length === 0) {
+      sourceTags.forEach(tag => debug(`Missing field ${tag} copied from source to base`));
       sourceFields.forEach(f => base.insertField(f));
       return base;
     }
-    const filterMissing = function(sourceField) {
-      // Test 02: Identical control fields are not copied
-      if ('value' in sourceField) {
-        return baseFields.some(isIdenticalControlField) === false;
-      }
-      // Test 04: Identical data fields in base and source, not copied
-      // Test 05: Different data fields are copied from source to base
-      if ('subfields' in sourceField) {
-        return baseFields.some(isIdenticalDataField) === false;
-      }
 
-      function normalizeControlField(field) {
-        return field.value.toLowerCase().replace(/\s+/u, '');
-      }
+    // If compareTagsOnly = false (default)
+    // Source and base are also compared for identicalness
+    // Non-identical fields are copied from source to base as duplicates
+    if (!compareTagsOnly) {
+      const filterMissing = function(sourceField) {
+        if ('value' in sourceField) {
+          debug(`Checking control field ${sourceField.tag} for identicalness`);
+          return baseFields.some(isIdenticalControlField) === false;
+        }
+        if ('subfields' in sourceField) {
+          debug(`Checking data field ${sourceField.tag} for identicalness`);
+          return baseFields.some(isIdenticalDataField) === false;
+        }
 
-      function isIdenticalControlField(baseField) {
-        const normalizedBaseField = normalizeControlField(baseField);
-        const normalizedSourceField = normalizeControlField(sourceField);
-        return normalizedSourceField === normalizedBaseField;
+        function normalizeControlField(field) {
+          return field.value.toLowerCase().replace(/\s+/u, '');
+        }
+
+        function isIdenticalControlField(baseField) {
+          const normalizedBaseField = normalizeControlField(baseField);
+          const normalizedSourceField = normalizeControlField(sourceField);
+          return normalizedSourceField === normalizedBaseField;
+        }
+        function isIdenticalDataField(baseField) {
+          // If excluded subfields have been defined for this field, they must be ignored first
+          // (i.e. source and base fields are considered identical if all non-excluded subfields are identical)
+          if (excludeSubfields.length > 0 &&
+            sourceField.tag === baseField.tag &&
+            sourceField.ind1 === baseField.ind1 &&
+            sourceField.ind2 === baseField.ind2) {
+            excludeSubfields.forEach(sub => debug(`Subfield ${sub} excluded from identicalness comparison`));
+            // Compare only those subfields that are not excluded
+            const baseSubsToCompare = baseField.subfields.filter(subfield => excludeSubfields.indexOf(subfield.code) === -1);
+            return baseSubsToCompare.every(isIdenticalSubfield);
+          }
+          // If there are no excluded subfields (default case)
+          if (sourceField.tag === baseField.tag &&
+              sourceField.ind1 === baseField.ind1 &&
+              sourceField.ind2 === baseField.ind2 &&
+              sourceField.subfields.length === baseField.subfields.length) {
+            return baseField.subfields.every(isIdenticalSubfield);
+          }
+          function normalizeSubfield(subfield) {
+            return subfield.value.toLowerCase().replace(/\s+/u, '');
+          }
+          function isIdenticalSubfield(baseSub) {
+            const normBaseSub = normalizeSubfield(baseSub);
+            return sourceField.subfields.some(sourceSub => {
+              const normSourceSub = normalizeSubfield(sourceSub);
+              return normSourceSub === normBaseSub;
+            });
+          }
+        }
+      };
+      // Search for fields missing from base
+      const missingFields = sourceFields.filter(filterMissing);
+      missingFields.forEach(f => base.insertField(f));
+      if (missingFields.length > 0) {
+        const missingTags = missingFields.map(field => field.tag);
+        missingTags.forEach(tag => debug(`Field ${tag} copied from source to base`));
+        return base;
       }
-      function isIdenticalDataField(baseField) {
-        if (sourceField.tag === baseField.tag &&
-          sourceField.ind1 === baseField.ind1 &&
-          sourceField.ind2 === baseField.ind2 &&
-          sourceField.subfields.length === baseField.subfields.length) {
-          return baseField.subfields.every(isIdenticalSubfield);
-        }
-        function normalizeSubfield(subfield) {
-          return subfield.value.toLowerCase().replace(/\s+/u, '');
-        }
-        function isIdenticalSubfield(baseSub) {
-          const normBaseSub = normalizeSubfield(baseSub);
-          return sourceField.subfields.some(sourceSub => {
-            const normSourceSub = normalizeSubfield(sourceSub);
-            return normSourceSub === normBaseSub;
-          });
-        }
+      if (missingFields.length === 0) {
+        debug(`No missing fields found`);
+        return base;
       }
-    };
-    // Search for fields missing from base
-    const missingFields = sourceFields.filter(filterMissing);
-    // Test 03: Add missing control field to base
-    // Test 05: Add missing data field to base
-    missingFields.forEach(f => base.insertField(f));
-    return base; // This is returned by copyFields
+    }
+    debug(`No missing fields found`);
+    return base;
+  }
+
+  function checkDropSubfields(fields) {
+    if (dropSubfields.length > 0) {
+      dropSubfields.forEach(sub => debug(`Subfield ${sub} dropped from source field before copying`));
+      return fields.map((field) => ({...field, subfields: field.subfields.filter((subfield) => dropSubfields.indexOf(subfield.code) === -1)}));
+    }
+    debug(`No subfields to drop`);
+    return fields;
   }
 };
